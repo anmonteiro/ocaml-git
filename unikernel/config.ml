@@ -4,75 +4,48 @@ type mimic = Mimic
 
 let mimic = typ Mimic
 
-let mimic_count =
-  let v = ref (-1) in
-  fun () -> incr v ; !v
-
 let mimic_conf () =
   let packages = [ package "mimic" ] in
-  impl @@ object
-       inherit base_configurable
-       method ty = mimic @-> mimic @-> mimic
-       method module_name = "Mimic.Merge"
-       method! packages = Key.pure packages
-       method name = Fmt.str "merge_ctx%02d" (mimic_count ())
-       method! connect _ _modname =
-         function
-         | [ a; b ] -> Fmt.str "Lwt.return (Mimic.merge %s %s)" a b
-         | [ x ] -> Fmt.str "%s.ctx" x
-         | _ -> Fmt.str "Lwt.return Mimic.empty"
-     end
+  let connect _ _modname = function
+    | [ a; b ] -> Fmt.str "Lwt.return (Mimic.merge %s %s)" a b
+    | [ x ] -> Fmt.str "%s.ctx" x
+    | _ -> Fmt.str "Lwt.return Mimic.empty" in
+  impl ~packages ~connect "Mimic.Merge" (mimic @-> mimic @-> mimic)
 
 let merge ctx0 ctx1 = mimic_conf () $ ctx0 $ ctx1
 
 let mimic_tcp_conf =
   let packages = [ package "git-mirage" ~sublibs:[ "tcp" ] ] in
-  impl @@ object
-       inherit base_configurable
-       method ty = stackv4 @-> mimic
-       method module_name = "Git_mirage_tcp.Make"
-       method! packages = Key.pure packages
-       method name = "tcp_ctx"
-       method! connect _ modname = function
-         | [ stack ] ->
-           Fmt.str {ocaml|Lwt.return (%s.with_stack %s %s.ctx)|ocaml}
-             modname stack modname
-         | _ -> assert false
-     end
+  let connect _ modname = function
+    | [ stack ] ->
+      Fmt.str {ocaml|Lwt.return (%s.with_stack %s %s.ctx)|ocaml}
+        modname stack modname
+    | _ -> assert false in
+  impl ~packages ~connect "Git_mirage_tcp.Make" (stackv4 @-> mimic)
 
 let mimic_tcp_impl stackv4 = mimic_tcp_conf $ stackv4
 
 let mimic_ssh_conf ~kind ~seed ~auth =
-  let seed = Key.abstract seed in
-  let auth = Key.abstract auth in
+  let seed = Key.v seed in
+  let auth = Key.v auth in
   let packages = [ package "git-mirage" ~sublibs:[ "ssh" ] ] in
-  impl @@ object
-       inherit base_configurable
-       method ty = stackv4 @-> mimic @-> mclock @-> mimic
-       method! keys = [ seed; auth; ]
-       method module_name = "Git_mirage_ssh.Make"
-       method! packages = Key.pure packages
-       method name = match kind with
-         | `Rsa -> "ssh_rsa_ctx"
-         | `Ed25519 -> "ssh_ed25519_ctx"
-       method! connect _ modname =
-         function
-         | [ _; tcp_ctx; _ ] ->
-             let with_key =
-               match kind with
-               | `Rsa -> "with_rsa_key"
-               | `Ed25519 -> "with_ed25519_key"
-             in
-             Fmt.str
-               {ocaml|let ssh_ctx00 = Mimic.merge %s %s.ctx in
-                      let ssh_ctx01 = Option.fold ~none:ssh_ctx00 ~some:(fun v -> %s.%s v ssh_ctx00) %a in
-                      let ssh_ctx02 = Option.fold ~none:ssh_ctx01 ~some:(fun v -> %s.with_authenticator v ssh_ctx01) %a in
-                      Lwt.return ssh_ctx02|ocaml}
-               tcp_ctx modname
-               modname with_key Key.serialize_call seed
-               modname Key.serialize_call auth
-         | _ -> assert false
-     end
+  let connect _ modname = function
+    | [ _; tcp_ctx; _ ] ->
+        let with_key =
+          match kind with
+          | `Rsa -> "with_rsa_key"
+          | `Ed25519 -> "with_ed25519_key"
+        in
+        Fmt.str
+          {ocaml|let ssh_ctx00 = Mimic.merge %s %s.ctx in
+                 let ssh_ctx01 = Option.fold ~none:ssh_ctx00 ~some:(fun v -> %s.%s v ssh_ctx00) %a in
+                 let ssh_ctx02 = Option.fold ~none:ssh_ctx01 ~some:(fun v -> %s.with_authenticator v ssh_ctx01) %a in
+                 Lwt.return ssh_ctx02|ocaml}
+          tcp_ctx modname
+          modname with_key Key.serialize_call seed
+          modname Key.serialize_call auth
+   | _ -> assert false in
+  impl ~packages ~connect ~keys:[ seed; auth; ] "Git_mirage_ssh.Make" (stackv4 @-> mimic @-> mclock @-> mimic)
 
 let mimic_ssh_impl ~kind ~seed ~auth stackv4 mimic_git mclock =
   mimic_ssh_conf ~kind ~seed ~auth
@@ -84,23 +57,16 @@ let mimic_ssh_impl ~kind ~seed ~auth stackv4 mimic_git mclock =
 
 let mimic_dns_conf =
   let packages = [ package "git-mirage" ~sublibs:[ "dns" ] ] in
-  impl @@ object
-       inherit base_configurable
-       method ty = random @-> mclock @-> time @-> stackv4 @-> mimic @-> mimic
-       method module_name = "Git_mirage_dns.Make"
-       method! packages = Key.pure packages
-       method name = "dns_ctx"
-       method! connect _ modname =
-         function
-         | [ _; _; _; stack; tcp_ctx ] ->
-             Fmt.str
-               {ocaml|let dns_ctx00 = Mimic.merge %s %s.ctx in
-                      let dns_ctx01 = %s.with_dns %s dns_ctx00 in
-                      Lwt.return dns_ctx01|ocaml}
-               tcp_ctx modname
-               modname stack
-         | _ -> assert false
-     end
+  let connect _ modname = function
+    | [ _; _; _; stack; tcp_ctx ] ->
+        Fmt.str
+          {ocaml|let dns_ctx00 = Mimic.merge %s %s.ctx in
+                 let dns_ctx01 = %s.with_dns %s dns_ctx00 in
+                 Lwt.return dns_ctx01|ocaml}
+          tcp_ctx modname
+          modname stack
+    | _ -> assert false in
+  impl ~packages ~connect "Git_mirage_dns.Make" (random @-> mclock @-> time @-> stackv4 @-> mimic @-> mimic)
 
 let mimic_dns_impl random mclock time stackv4 mimic_tcp =
   mimic_dns_conf $ random $ mclock $ time $ stackv4 $ mimic_tcp
@@ -109,49 +75,34 @@ type hash = Hash
 
 let hash = typ Hash
 
-let sha1 =
-  impl @@ object
-       inherit base_configurable
-       method ty = hash
-       method module_name = "Digestif.SHA1"
-       method! packages = Key.pure [ package "digestif" ]
-       method name = "sha1"
-     end
+let sha1 = impl ~packages:[ package "digestif" ] "Digestif.SHA1" hash
 
 type git = Git
 
 let git = typ Git
 
 let git_conf ?path () =
-  let keys =
-    match path with Some path -> [ Key.abstract path ] | None -> []
-  in
-  impl @@ object
-       inherit base_configurable
-       method ty = hash @-> git
-       method! keys = keys
-       method module_name = "Git.Mem.Make"
-       method! packages = Key.pure [ package "git"; package "digestif" ]
-       method name = "git"
-       method! connect _ modname _ =
-         match path with
-         | None ->
-             Fmt.str
-               {|%s.v (Fpath.v ".") >>= function
-                 | Ok v -> Lwt.return v
-                 | Error err -> Fmt.failwith "%%a" %s.pp_error err|}
-               modname modname
-         | Some key ->
-             Fmt.str
-               {|let res = match Option.map Fpath.of_string %a with
-                    | Some (Ok path) -> %s.v path
-                    | Some (Error (`Msg err)) -> failwith err
-                    | None -> %s.v (Fpath.v ".") in
-                  res >>= function
-                  | Ok v -> Lwt.return v
-                  | Error err -> Fmt.failwith "%%a" %s.pp_error err|}
-               Key.serialize_call (Key.abstract key) modname modname modname
-     end
+  let keys = match path with
+    | Some path -> [ Key.v path ]
+    | None -> [] in
+  let connect _ modname _ = match path with
+    | None ->
+        Fmt.str
+          {|%s.v (Fpath.v ".") >>= function
+            | Ok v -> Lwt.return v
+            | Error err -> Fmt.failwith "%%a" %s.pp_error err|}
+          modname modname
+    | Some key ->
+        Fmt.str
+          {|let res = match Option.map Fpath.of_string %a with
+               | Some (Ok path) -> %s.v path
+               | Some (Error (`Msg err)) -> failwith err
+               | None -> %s.v (Fpath.v ".") in
+             res >>= function
+             | Ok v -> Lwt.return v
+             | Error err -> Fmt.failwith "%%a" %s.pp_error err|}
+          Key.serialize_call (Key.v key) modname modname modname in
+  impl ~packages:[ package "git" ] ~keys ~connect "Git.Mem.Make" (hash @-> git)
 
 let git_impl ?path hash = git_conf ?path () $ hash
 
@@ -174,7 +125,7 @@ let ssh_auth =
 
 let minigit =
   foreign "Unikernel.Make"
-    ~keys:[ Key.abstract remote; Key.abstract ssh_seed; Key.abstract ssh_auth ]
+    ~keys:[ Key.v remote; Key.v ssh_seed; Key.v ssh_auth ]
     ~packages:[ package "git-cohttp-mirage" ]
     (git @-> mimic @-> job)
 
