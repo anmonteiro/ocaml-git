@@ -29,12 +29,14 @@ let run :
             go (eof ())
         | Ok (`Input len) ->
             Log.debug (fun m -> m "Got %d/%d byte(s)." len max);
+            Format.eprintf "<<< %S.\n%!" (Cstruct.to_string (Cstruct.sub tmp 0 len)) ;
             Cstruct.blit_to_bytes tmp 0 buffer off len;
             go (k len)
         | Error err ->
             Log.err (fun m -> m "Got an error: %a." pp_error err);
             failwithf "%a" pp_error err)
     | Smart.Write { k; buffer; off; len } ->
+        Format.eprintf ">>> %S.\n%!" (String.sub buffer off len) ;
         let rec loop tmp =
           if Cstruct.len tmp = 0 then go (k len)
           else

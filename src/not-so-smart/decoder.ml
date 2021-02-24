@@ -18,7 +18,7 @@ type error =
   | `No_enough_space
   | `Unexpected_end_of_input
   | `Assert_predicate of char -> bool
-  | `Invalid_pkt_line ]
+  | `Invalid_pkt_line of string ]
 
 let pp_error ppf = function
   | `End_of_input -> Fmt.string ppf "End of input"
@@ -30,7 +30,7 @@ let pp_error ppf = function
   | `No_enough_space -> Fmt.string ppf "No enough space"
   | `Unexpected_end_of_input -> Fmt.string ppf "Unexpected end of input"
   | `Assert_predicate _ -> Fmt.string ppf "Assert predicate"
-  | `Invalid_pkt_line -> Fmt.string ppf "Invalid PKT-line"
+  | `Invalid_pkt_line line -> Fmt.pf ppf "Invalid PKT-line (%S)" line
 
 type 'err info = {
   error : 'err;
@@ -153,6 +153,7 @@ let pkt_len_unsafe (decoder : decoder) =
 
 let at_least_one_pkt decoder =
   let len = decoder.max - decoder.pos in
+  Format.eprintf "[PKT-line]: at least one pkt (%d byte(s)).\n%!" len ;
   if len >= 4 then
     let pkt_len = pkt_len_unsafe decoder in
     len >= pkt_len
@@ -227,6 +228,7 @@ let prompt :
   let rec go off =
     try
       let at_least_one_pkt = at_least_one_pkt { decoder with max = off } in
+      Format.eprintf "[PKT-line] at last one pkt: %b: %S.\n%!" at_least_one_pkt (Bytes.sub_string decoder.buffer decoder.pos off) ;
       if
         off = Bytes.length decoder.buffer
         && decoder.pos > 0
@@ -256,7 +258,8 @@ let prompt :
         safe k decoder)
     with
     | _exn (* XXX(dinosaure): [at_least_one_pkt] can raise an exception. *) ->
-      fail decoder `Invalid_pkt_line
+      let line = Bytes.sub_string decoder.buffer decoder.pos off in
+      fail decoder (`Invalid_pkt_line line)
   in
   go decoder.max
 

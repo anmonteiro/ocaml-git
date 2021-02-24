@@ -33,6 +33,7 @@ module Make (Flow : Mirage_flow.S) = struct
       >>? function
       | `Eof -> Lwt.return_ok `End_of_flow
       | `Data res ->
+          Format.eprintf "[unixiz] %S.\n%!" (Cstruct.to_string res) ;
           Ke.Rke.N.push flow.queue ~blit:blit0 ~length:Cstruct.len res;
           let len = min (Cstruct.len payload) (Ke.Rke.length flow.queue) in
           Ke.Rke.N.keep_exn flow.queue ~blit:blit1 ~length:Cstruct.len ~off:0

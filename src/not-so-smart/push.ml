@@ -102,6 +102,9 @@ struct
                 |> prj
                 >>| Smart.Status.map ~f:Ref.v
               else
+                (* Smart_flow.run sched fail io flow
+                  Smart.(recv ctx recv_flush)
+                |> prj >>= fun () -> *)
                 let cmds = List.map R.ok (Smart.Commands.commands cmds) in
                 return (Smart.Status.v cmds)
           | Some payload ->
