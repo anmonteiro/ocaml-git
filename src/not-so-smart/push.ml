@@ -101,10 +101,13 @@ struct
                   Smart.(recv ctx (status side_band))
                 |> prj
                 >>| Smart.Status.map ~f:Ref.v
-              else
-                (* Smart_flow.run sched fail io flow
+              else if uses_git_transport then
+                Smart_flow.run sched fail io flow
                   Smart.(recv ctx recv_flush)
-                |> prj >>= fun () -> *)
+                |> prj >>= fun () ->
+                let cmds = List.map R.ok (Smart.Commands.commands cmds) in
+                return (Smart.Status.v cmds)
+              else
                 let cmds = List.map R.ok (Smart.Commands.commands cmds) in
                 return (Smart.Status.v cmds)
           | Some payload ->

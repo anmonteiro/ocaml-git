@@ -712,18 +712,24 @@ module Decoder = struct
     prompt_pkt result decoder
 
   let decode_status ?(sideband = true) decoder =
+    Format.eprintf "[decode-status] sideband:%b.\n%!" sideband ;
+
     match sideband with
     | true ->
-      let k decoder =
+      let rec go buf decoder =
         let pkt = peek_pkt ~trim:false decoder in
         match String.Sub.head pkt with
         | Some '\001' ->
           let str = String.Sub.(to_string (tail pkt)) in
-          let decoder' = of_string str in
-          decode_status decoder'
-        | Some _ -> assert false (* TODO *)
-        | None -> fail decoder `Unexpected_flush in
-      prompt_pkt k decoder
+          Buffer.add_string buf str ;
+          junk_pkt decoder ; prompt_pkt (go buf) decoder
+        | Some _ ->
+          junk_pkt decoder ; prompt_pkt (go buf) decoder
+        | None ->
+          Format.eprintf "[PKT-line] %S.\n%!" (Buffer.contents buf) ;
+          let decoder' = of_string (Buffer.contents buf) in
+          decode_status decoder' in
+      prompt_pkt (go (Buffer.create 0x100)) decoder
     | false ->
       decode_status decoder
 
