@@ -1,0 +1,4 @@
+(library
+ (name git_piaf)
+ (public_name git-piaf)
+ (libraries lwt rresult result git.nss.git uri fmt piaf))
